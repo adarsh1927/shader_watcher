@@ -3,22 +3,22 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Shader Simulator - Phase 1</title>
+    <title>Shader Simulator - Stable</title>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
     <div id="main-container">
-        <!-- The Monaco Editor will be placed inside this div -->
         <div id="editor-container"></div>
-
-        <!-- This is the canvas where the shader output will be rendered -->
         <canvas id="output-canvas" width="512" height="512"></canvas>
     </div>
 
-    <!-- This script loads the Monaco Editor from a CDN -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.34.0/min/vs/loader.min.js"></script>
+    <!-- SCRIPT LOADING - SIMPLE & RELIABLE -->
+    <!-- Place scripts at the end of the body. They will load and execute in this exact order. -->
     
-    <!-- This is your main application script -->
+    <!-- 1. Monaco's loader runs first, creating the global `require` function. -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.34.0/min/vs/loader.min.js"></script>
+
+    <!-- 2. Our script runs last. We'll handle GLSL parsing differently. -->
     <script src="script.js"></script>
 </body>
 </html>
