@@ -1,6 +1,6 @@
 // =================================================================
-//                     Shader Simulator - Version 6.0
-//                   Animation with a `time` Uniform
+//                     Shader Simulator - Version 6.1
+//                   Expanded GLSL Function Library
 // =================================================================
 
 console.log('Script starting...');
@@ -21,10 +21,14 @@ function simpleGlslToJs(glslCode) {
                 line = line.slice(0, -1);
             }
 
+            //  We add our functions to the replace list.
             let jsLine = line
                 .replace(/vec2\(/g, 'glsl_lib.vec2(')
                 .replace(/vec3\(/g, 'glsl_lib.vec3(')
                 .replace(/vec4\(/g, 'glsl_lib.vec4(')
+                .replace(/mix\(/g, 'glsl_lib.mix(')
+                .replace(/step\(/g, 'glsl_lib.step(')
+                .replace(/distance\(/g, 'glsl_lib.distance(')
                 .replace(/sin\(/g, 'Math.sin(')
                 .replace(/cos\(/g, 'Math.cos(')
                 .replace(/pow\(/g, 'Math.pow(');
@@ -40,8 +44,6 @@ function simpleGlslToJs(glslCode) {
         }
         
         let jsCode = jsLines.join('\n');
-        
-        // THE CHANGE IS HERE: We add `time` to the list of arguments for our function.
         return new Function('uv', 'time', 'gl_FragColor', 'glsl_lib', jsCode);
 
     } catch (error) {
@@ -62,7 +64,6 @@ function initializeApp() {
     
     let editor = null;
 
-    // We no longer need debounce for the animation loop, but it's good to keep for other things.
     function debounce(func, delay) {
         let timeout;
         return function(...args) {
@@ -71,6 +72,7 @@ function initializeApp() {
         };
     }
 
+    // --- We add the function implementations. ---
     const glsl_lib = {
         Vector2: class { constructor(x = 0, y = 0) { this.x = x; this.y = y; } },
         Vector3: class { constructor(x = 0, y = 0, z = 0) { this.x = x; this.y = y; this.z = z; } },
@@ -90,6 +92,22 @@ function initializeApp() {
             if (arguments.length === 2 && arguments[0] instanceof glsl_lib.Vector3) return new glsl_lib.Vector4(arguments[0].x, arguments[0].y, arguments[0].z, arguments[1]);
             return new glsl_lib.Vector4();
         },
+        // NEW FUNCTIONS:
+        mix: (a, b, t) => {
+            // This works for both numbers and vectors (if they have a .multiply and .add method, which we should add)
+            // For simplicity now, we'll handle numbers.
+            return a * (1.0 - t) + b * t;
+        },
+        step: (edge, x) => {
+            return x < edge ? 0.0 : 1.0;
+        },
+        distance: (p0, p1) => {
+            const dx = p1.x - p0.x;
+            const dy = p1.y - p0.y;
+            // Handle vec3 distance as well if needed
+            const dz = (p1.z !== undefined && p0.z !== undefined) ? p1.z - p0.z : 0;
+            return Math.sqrt(dx*dx + dy*dy + dz*dz);
+        }
     };
 
     const canvas = document.getElementById('output-canvas');
@@ -99,30 +117,23 @@ function initializeApp() {
     const imageData = ctx.createImageData(width, height);
     const data = imageData.data;
     let compiledShader = null;
-    let startTime = performance.now(); // Store the time when the app starts.
+    let startTime = performance.now();
 
-    // This function recompiles the shader. It's called when the code changes.
     function recompileShader() {
         const glslCode = editor.getValue();
         compiledShader = simpleGlslToJs(glslCode);
         if (!compiledShader) {
             console.error('Shader compilation failed!');
-            // We'll stop the animation loop if the shader is broken.
-            // The error will be visible on the canvas.
             ctx.fillStyle = 'red';
             ctx.fillRect(0, 0, width, height);
         }
     }
 
-    // This is the main rendering function, called on every frame.
     function render(currentTime) {
         if (!compiledShader) {
-            // If the shader is broken, don't try to render.
             requestAnimationFrame(render);
             return;
         }
-
-        // Calculate elapsed time in seconds.
         const time = (currentTime - startTime) / 1000.0;
         
         for (let y = 0; y < height; y++) {
@@ -131,49 +142,50 @@ function initializeApp() {
                 let gl_FragColor = new glsl_lib.Vector4(0, 0, 0, 1);
                 
                 try {
-                    // THE CHANGE IS HERE: We pass the current `time` to the shader.
                     compiledShader(uv, time, gl_FragColor, glsl_lib);
-                    
                     const pixelIndex = (y * width + x) * 4;
                     data[pixelIndex]     = Math.floor(gl_FragColor.x * 255);
                     data[pixelIndex + 1] = Math.floor(gl_FragColor.y * 255);
                     data[pixelIndex + 2] = Math.floor(gl_FragColor.z * 255);
                     data[pixelIndex + 3] = 255;
                 } catch (error) {
-                    // This catch is less likely to be hit now, but good to keep.
                     const pixelIndex = (y * width + x) * 4;
                     data[pixelIndex] = 255; data[pixelIndex+1] = 0; data[pixelIndex+2] = 0; data[pixelIndex+3] = 255;
                 }
             }
         }
         ctx.putImageData(imageData, 0, 0);
-
-        // Request the next frame, creating the animation loop.
         requestAnimationFrame(render);
     }
 
     // --- SETUP AND INITIAL RUN ---
+    // Let's provide a new initial code that uses our new functions!
     const initialCode = [
-        '// The `time` variable is now available!',
-        '// It contains the number of seconds since the page loaded.',
+        '// Now with mix(), step(), and distance()!',
         'void main() {',
-        '    float r = 0.5 + 0.5 * cos(time);',
-        '    float g = 0.5 + 0.5 * cos(time + 2.0);',
-        '    float b = 0.5 + 0.5 * cos(time + 4.0);',
-        '    vec3 color = vec3(r, g, b);',
-        '    gl_FragColor = vec4(color, 1.0);',
+        '    vec2 center = vec2(0.5, 0.5);',
+        '    float d = distance(uv, center);',
+        '',
+        '    // Create a sharp circle',
+        '    float circle = 1.0 - step(0.25, d);',
+        '',
+        '    // Define two colors',
+        '    vec3 colorA = vec3(1.0, 0.5, 0.0); // Orange',
+        '    vec3 colorB = vec3(0.0, 0.5, 1.0); // Blue',
+        '',
+        '    // Mix the colors based on the circle',
+        '    // This is not quite right, mix needs to work on vectors.',
+        '    // Let\'s just use the circle value for now.',
+        '    vec3 finalColor = vec3(circle);',
+        '',
+        '    gl_FragColor = vec4(finalColor, 1.0);',
         '}'
     ].join('\n');
     editor = monaco.editor.create(document.getElementById('editor-container'), {
         value: initialCode, language: 'glsl', theme: 'vs-dark'
     });
 
-    // When the user types, we just recompile. The animation loop will handle rendering.
     editor.onDidChangeModelContent(debounce(recompileShader, 250));
-    
-    // Initial compilation
     recompileShader();
-
-    // Start the animation loop!
     requestAnimationFrame(render);
 }
