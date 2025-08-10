@@ -2,35 +2,54 @@ document.addEventListener('DOMContentLoaded', () => {
 
     let editor = null;
 
+    // --- UTILITY FUNCTION: DEBOUNCE ---
+    // This function prevents another function from being called too frequently.
+    function debounce(func, delay) {
+        let timeout;
+        return function(...args) {
+            clearTimeout(timeout);
+            timeout = setTimeout(() => func.apply(this, args), delay);
+        };
+    }
+
+    // --- JAVASCRIPT "GLSL" LIBRARY ---
+    class Vector2 { constructor(x = 0, y = 0) { this.x = x; this.y = y; } }
+    class Vector3 { constructor(x = 0, y = 0, z = 0) { this.x = x; this.y = y; this.z = z; } }
+    class Vector4 {
+        constructor(x = 0, y = 0, z = 0, w = 0) { this.x = x; this.y = y; this.z = z; this.w = w; }
+        set(vec3, w) { this.x = vec3.x; this.y = vec3.y; this.z = vec3.z; this.w = w; }
+    }
+
+    // --- EDITOR SETUP ---
     require.config({ paths: { 'vs': 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.34.0/min/vs' }});
     require(['vs/editor/editor.main'], () => {
         const initialCode = [
-            '// Change the values below and see the canvas update!',
-            'void main() {',
-            '    vec3 color = vec3(1.0, 0.0, 1.0); // Try changing this!',
-            '    gl_FragColor = vec4(color, 1.0);',
-            '}'
+            '// Your code runs for every pixel!',
+            '// The `uv` variable holds the coordinates (0.0 to 1.0).',
+            '',
+            'let color = new Vector3(uv.x, uv.y, 0.5);',
+            '',
+            '// This is our output variable.',
+            'gl_FragColor.set(color, 1.0);'
         ].join('\n');
 
         editor = monaco.editor.create(document.getElementById('editor-container'), {
             value: initialCode,
-            language: 'glsl',
+            language: 'javascript',
             theme: 'vs-dark'
         });
 
-        editor.onDidChangeModelContent(() => {
-            const currentCode = editor.getValue();
-            runSimulation(currentCode);
-        });
+        // --- THE FIX IS HERE! ---
+        // We wrap our call to runSimulation in our new debounce function.
+        // The simulation will now only run 250ms *after* the user stops typing.
+        editor.onDidChangeModelContent(debounce(() => {
+            runSimulation(editor.getValue());
+        }, 250));
 
         runSimulation(initialCode);
     });
 
-    class Vector3 {
-        constructor(x = 0, y = 0, z = 0) { this.x = x; this.y = y; this.z = z; }
-        dot(otherVector) { return this.x * otherVector.x + this.y * otherVector.y + this.z * otherVector.z; }
-    }
-
+    // --- THE SIMULATOR CORE (Unchanged) ---
     const canvas = document.getElementById('output-canvas');
     const ctx = canvas.getContext('2d');
     const width = canvas.width;
@@ -38,40 +57,21 @@ document.addEventListener('DOMContentLoaded', () => {
     const imageData = ctx.createImageData(width, height);
     const data = imageData.data;
 
-    /**
-     * OUR FIRST, SIMPLE PARSER (NOW FIXED).
-     * It uses a NON-GREEDY regular expression to find the color values.
-     * @param {string} glslCode The GLSL code from the editor.
-     * @returns {object|null} An object {r, g, b} with values from 0-1, or null if not found.
-     */
-    function parseColorFromCode(glslCode) {
-        // THE FIX IS HERE: We changed (.*) to (.*?) to make it non-greedy.
-        const match = glslCode.match(/vec3\((.*?)\)/);
-
-        if (match && match[1]) {
-            // NEW: Log what the regex captured. This is great for debugging!
-            console.log("Parser found values:", match[1]); 
-
-            const values = match[1].split(',').map(str => parseFloat(str.trim()));
-            if (values.length === 3 && !values.some(isNaN)) { // Check for 3 valid numbers
-                return { r: values[0], g: values[1], b: values[2] };
-            }
-        }
-        console.log("Parser did not find a valid vec3 color."); // Log failures too
-        return null;
-    }
-
-    function runSimulation(glslCode) {
-        const parsedColor = parseColorFromCode(glslCode);
-        const color = parsedColor ? parsedColor : { r: 0, g: 0, b: 0 };
-
+    function runSimulation(userCode) {
         for (let y = 0; y < height; y++) {
             for (let x = 0; x < width; x++) {
+                const uv = new Vector2(x / width, (height - 1 - y) / height);
+                let gl_FragColor = new Vector4(0, 0, 0, 1);
+                try {
+                    eval(userCode);
+                } catch (error) {
+                    gl_FragColor = new Vector4(1, 0, 0, 1);
+                }
                 const pixelIndex = (y * width + x) * 4;
-                data[pixelIndex]     = color.r * 255;
-                data[pixelIndex + 1] = color.g * 255;
-                data[pixelIndex + 2] = color.b * 255;
-                data[pixelIndex + 3] = 255;
+                data[pixelIndex]     = gl_FragColor.x * 255;
+                data[pixelIndex + 1] = gl_FragColor.y * 255;
+                data[pixelIndex + 2] = gl_FragColor.z * 255;
+                data[pixelIndex + 3] = gl_FragColor.w * 255;
             }
         }
         ctx.putImageData(imageData, 0, 0);
